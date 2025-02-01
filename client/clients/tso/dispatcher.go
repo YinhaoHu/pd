@@ -38,6 +38,7 @@ import (
 	cctx "github.com/tikv/pd/client/pkg/connectionctx"
 	"github.com/tikv/pd/client/pkg/deadline"
 	"github.com/tikv/pd/client/pkg/retry"
+	"github.com/tikv/pd/client/pkg/utils/logutil"
 	"github.com/tikv/pd/client/pkg/utils/tsoutil"
 	sd "github.com/tikv/pd/client/servicediscovery"
 )
@@ -94,7 +95,7 @@ func newTSODispatcher(
 	})
 
 	// A large-enough capacity to hold maximum concurrent RPC requests. In our design, the concurrency is at most 16.
-	const tokenChCapacity = 64
+	const tokenChCapacity = 1e4
 	tokenCh := make(chan struct{}, tokenChCapacity)
 
 	td := &tsoDispatcher{
@@ -190,9 +191,9 @@ tsoBatchLoop:
 		}
 
 		maxBatchWaitInterval := option.GetMaxTSOBatchWaitInterval()
-
 		currentBatchStartTime := time.Now()
 		// Update concurrency settings if needed.
+
 		if err = td.checkTSORPCConcurrency(ctx, maxBatchWaitInterval, currentBatchStartTime); err != nil {
 			// checkTSORPCConcurrency can only fail due to `ctx` being invalidated.
 			log.Info("[tso] stop checking tso rpc concurrency configurations due to context canceled",
@@ -203,6 +204,7 @@ tsoBatchLoop:
 		// Start to collect the TSO requests.
 		// Once the TSO requests are collected, must make sure they could be finished or revoked eventually,
 		// otherwise the upper caller may get blocked on waiting for the results.
+		fetchPendingRequestsStartTime := time.Now()
 		if err = tsoBatchController.FetchPendingRequests(ctx, td.tsoRequestCh, td.tokenCh, maxBatchWaitInterval); err != nil {
 			if err == context.Canceled {
 				log.Info("[tso] stop fetching the pending tso requests due to context canceled")
@@ -212,6 +214,7 @@ tsoBatchLoop:
 			}
 			return
 		}
+		fetchPendingRequestsUsedTime := time.Since(fetchPendingRequestsStartTime)
 		if maxBatchWaitInterval >= 0 {
 			tsoBatchController.AdjustBestBatchSize()
 		}
@@ -339,9 +342,17 @@ tsoBatchLoop:
 			return
 		}
 		// processRequests guarantees that the collected requests could be finished properly.
+		processRequestsStartTime := time.Now()
 		err = td.processRequests(stream, tsoBatchController, done)
+		processRequestsUsedTime := time.Since(processRequestsStartTime)
+		batchUsedTime := time.Since(currentBatchStartTime)
 		// If error happens during tso stream handling, reset stream and run the next trial.
 		if err == nil {
+			if batchUsedTime > 20*time.Millisecond {
+				logutil.Logf("BatchSize=%v, UsedTime=%v, ProcessRequestsTime=%v, FetchPendingRequestsTime=%v",
+					tsoBatchController.GetCollectedRequestCount(), batchUsedTime,
+					processRequestsUsedTime, fetchPendingRequestsUsedTime)
+			}
 			// A nil error returned by `processRequests` indicates that the request batch is started successfully.
 			// In this case, the `tsoBatchController` will be put back to the pool when the request is finished
 			// asynchronously (either successful or not). This infers that the current `tsoBatchController` object will

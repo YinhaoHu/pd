@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/tikv/pd/client/pkg/utils/logutil"
 )
 
 // Starting from a low value is necessary because we need to make sure it will be converged to (current_batch_size - 4).
@@ -81,6 +82,12 @@ func (bc *Controller[T]) FetchPendingRequests(ctx context.Context, requestCh <-c
 	// Wait until BOTH the first request and the token have arrived.
 	// TODO: `bc.collectedRequestCount` should never be non-empty here. Consider do assertion here.
 	bc.collectedRequestCount = 0
+
+	var (
+		startTime                  = time.Now()
+		firstRequestArriveUsedTime time.Duration
+		tokenArriveUsedTime        time.Duration
+	)
 	for {
 		// If the batch size reaches the maxBatchSize limit but the token haven't arrived yet, don't receive more
 		// requests, and return when token is ready.
@@ -107,6 +114,7 @@ func (bc *Controller[T]) FetchPendingRequests(ctx context.Context, requestCh <-c
 				// request if it arrives.
 				continue
 			case <-tokenCh:
+				tokenArriveUsedTime = time.Since(startTime)
 				tokenAcquired = true
 			}
 		}
@@ -118,6 +126,7 @@ func (bc *Controller[T]) FetchPendingRequests(ctx context.Context, requestCh <-c
 			case <-ctx.Done():
 				return ctx.Err()
 			case firstRequest := <-requestCh:
+				firstRequestArriveUsedTime = time.Since(startTime)
 				bc.pushRequest(firstRequest)
 			}
 		}
@@ -129,16 +138,25 @@ func (bc *Controller[T]) FetchPendingRequests(ctx context.Context, requestCh <-c
 	bc.extraBatchingStartTime = time.Now()
 
 	// This loop is for trying best to collect more requests, so we use `bc.maxBatchSize` here.
+	mustStopBatchingCh := time.After(15 * time.Millisecond)
 fetchPendingRequestsLoop:
 	for bc.collectedRequestCount < bc.maxBatchSize {
 		select {
+		case <-mustStopBatchingCh:
+			logutil.LogWithLimitation("FetchPendingRequests-first-collecting", 3, "timeout in first collecting")
+			break fetchPendingRequestsLoop
 		case req := <-requestCh:
 			bc.pushRequest(req)
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+			logutil.LogWithLimitation("FetchPendingRequests-first-collecting", 3, "default in first collecting")
 			break fetchPendingRequestsLoop
 		}
+	}
+	if time.Since(startTime) > 10*time.Millisecond {
+		logutil.Logf("Batching time: %v, first request arrive time: %v, token arrive time: %v",
+			time.Since(startTime), firstRequestArriveUsedTime, tokenArriveUsedTime)
 	}
 
 	// Check whether we should fetch more pending requests from the channel.
@@ -159,6 +177,7 @@ fetchPendingRequestsLoop:
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-after.C:
+				logutil.LogWithLimitation("FetchPendingRequests-second-collecting", 3, "timeout in second collecting")
 				return nil
 			}
 		}
@@ -174,6 +193,7 @@ fetchPendingRequestsLoop:
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+			logutil.LogWithLimitation("FetchPendingRequests-third-collecting", 3, "default in third collecting")
 			return nil
 		}
 	}

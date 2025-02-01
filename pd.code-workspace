@@ -15,7 +15,11 @@
 		{
 			"name": "pd-tools",
 			"path": "tools"
-		}
+		},
+		{
+                        "name": "testing-client",
+                        "path": "testing-client"
+                }
 	],
 	"settings": {
 		"makefile.configureOnOpen": false
