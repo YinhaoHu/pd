@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"path"
-	"runtime/trace"
 	"sort"
 	"strconv"
 	"strings"
@@ -126,7 +125,6 @@ func runBench(ident string, nIter int, nClients int, filename string) {
 		tasks     = make(chan int, nIter)
 		slowCount = int32(0)
 	)
-	defer startTrace()()
 
 	// create workers for getting TS
 	for i := 0; i < nWorkers; i++ {
@@ -162,7 +160,7 @@ func runBench(ident string, nIter int, nClients int, filename string) {
 	genHistogram(durations, filename)
 
 	logf("%s: nIter=%v  nWorkers=%v  nClients=%v  slowCount=%v  duration=%v",
-		ident, humanize.Comma(int64(nIter)), humanize.Comma(int64(slowCount)),
+		ident, humanize.Comma(int64(nIter)), humanize.Comma(int64(nWorkers)),
 		nClients, humanize.Comma(int64(slowCount)), duration)
 }
 
@@ -190,20 +188,4 @@ func genHistogram(durations []float64, filename string) {
 
 func logf(format string, args ...interface{}) {
 	log.Printf("%v %v", color.YellowString("LOG"), fmt.Sprintf(format, args...))
-}
-
-func startTrace() func() {
-	f, err := os.Create("trace.out")
-	if err != nil {
-		panic(err)
-	}
-
-	if err := trace.Start(f); err != nil {
-		panic(err)
-	}
-
-	return func() {
-		trace.Stop()
-		f.Close()
-	}
 }

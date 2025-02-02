@@ -94,7 +94,7 @@ func NewGlobalTSOAllocator(
 		timestampOracle:       newGlobalTimestampOracle(am),
 		tsoAllocatorRoleGauge: tsoAllocatorRole.WithLabelValues(am.getGroupIDStr(), GlobalDCLocation),
 	}
-
+	logutil.Trace2stdout("Global TSO Allocator is created")
 	return gta
 }
 
@@ -110,7 +110,6 @@ func newGlobalTimestampOracle(am *AllocatorManager) *timestampOracle {
 		tsoMux:                 &tsoObject{},
 		metrics:                newTSOMetrics(am.getGroupIDStr(), GlobalDCLocation),
 	}
-	tracefInStdout("newGlobalTimestampOracle: oracle=%+v", oracle)
 	return oracle
 }
 
@@ -157,7 +156,6 @@ func (gta *GlobalTSOAllocator) SetTSO(tso uint64, ignoreSmaller, skipUpperBoundC
 //  2. Deprecated: The new way to generate a Global TSO by synchronizing with all other Local TSO Allocators.
 func (gta *GlobalTSOAllocator) GenerateTSO(ctx context.Context, count uint32) (pdpb.Timestamp, error) {
 	defer trace.StartRegion(ctx, "GlobalTSOAllocator.GenerateTSO").End()
-	tracef("GlobalTSOAllocator.GenerateTSO: count=%d", count)
 	if !gta.member.GetLeadership().Check() {
 		gta.getMetrics().notLeaderEvent.Inc()
 		return pdpb.Timestamp{}, errs.ErrGenerateTimestamp.FastGenByArgs(fmt.Sprintf("requested pd %s of cluster", errs.NotLeaderErr))

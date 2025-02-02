@@ -138,13 +138,9 @@ func (bc *Controller[T]) FetchPendingRequests(ctx context.Context, requestCh <-c
 	bc.extraBatchingStartTime = time.Now()
 
 	// This loop is for trying best to collect more requests, so we use `bc.maxBatchSize` here.
-	mustStopBatchingCh := time.After(15 * time.Millisecond)
 fetchPendingRequestsLoop:
 	for bc.collectedRequestCount < bc.maxBatchSize {
 		select {
-		case <-mustStopBatchingCh:
-			logutil.LogWithLimitation("FetchPendingRequests-first-collecting", 3, "timeout in first collecting")
-			break fetchPendingRequestsLoop
 		case req := <-requestCh:
 			bc.pushRequest(req)
 		case <-ctx.Done():
@@ -154,9 +150,9 @@ fetchPendingRequestsLoop:
 			break fetchPendingRequestsLoop
 		}
 	}
-	if time.Since(startTime) > 10*time.Millisecond {
-		logutil.Logf("Batching time: %v, first request arrive time: %v, token arrive time: %v",
-			time.Since(startTime), firstRequestArriveUsedTime, tokenArriveUsedTime)
+	if time.Since(startTime) > 15*time.Millisecond {
+		logutil.Logf("BatchSize=%v, batchingTime=%v, firstReqArriveTime=%v, tokenArriveTime=%v",
+			bc.collectedRequestCount, time.Since(startTime), firstRequestArriveUsedTime, tokenArriveUsedTime)
 	}
 
 	// Check whether we should fetch more pending requests from the channel.

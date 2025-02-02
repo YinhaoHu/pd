@@ -36,6 +36,7 @@ import (
 	"github.com/tikv/pd/client/constants"
 	"github.com/tikv/pd/client/errs"
 	"github.com/tikv/pd/client/metrics"
+	"github.com/tikv/pd/client/pkg/utils/logutil"
 )
 
 // TSO Stream Builder Factory
@@ -128,6 +129,11 @@ type pdTSOStreamAdapter struct {
 	stream pdpb.PD_TsoClient
 }
 
+var (
+	lastRPCSendTime   time.Time
+	lastRPCParamCount int64
+)
+
 // Send implements the grpcTSOStreamAdapter interface.
 func (s pdTSOStreamAdapter) Send(clusterID uint64, _, _ uint32, count int64) error {
 	req := &pdpb.TsoRequest{
@@ -136,6 +142,8 @@ func (s pdTSOStreamAdapter) Send(clusterID uint64, _, _ uint32, count int64) err
 		},
 		Count: uint32(count),
 	}
+	lastRPCSendTime = time.Now()
+	lastRPCParamCount = count
 	return s.stream.Send(req)
 }
 
@@ -144,6 +152,10 @@ func (s pdTSOStreamAdapter) Recv() (tsoRequestResult, error) {
 	resp, err := s.stream.Recv()
 	if err != nil {
 		return tsoRequestResult{}, err
+	}
+	rpcUsedTime := time.Since(lastRPCSendTime)
+	if rpcUsedTime > 15*time.Millisecond {
+		logutil.Logf("[Slow TSO RPC] used time=%v, param: count = %v", rpcUsedTime, lastRPCParamCount)
 	}
 	return tsoRequestResult{
 		physical:            resp.GetTimestamp().GetPhysical(),

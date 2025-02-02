@@ -355,7 +355,6 @@ func (t *timestampOracle) getTS(ctx context.Context, leadership *election.Leader
 	if count == 0 {
 		return resp, errs.ErrGenerateTimestamp.FastGenByArgs("tso count should be positive")
 	}
-	tracef("getTS: count=%d", count)
 	for i := range maxRetryCount {
 		currentPhysical, _ := t.getTSO()
 		if currentPhysical == typeutil.ZeroTime {

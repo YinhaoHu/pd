@@ -18,12 +18,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
+	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/fatih/color"
 	"github.com/pingcap/log"
 
 	"github.com/tikv/pd/pkg/errs"
@@ -281,4 +286,22 @@ func IsLevelLegal(level string) bool {
 	default:
 		return false
 	}
+}
+
+var traceMutex sync.Mutex
+
+// Trace2stdout prints the trace log to stdout. It is used for exploring some topics.
+//
+// This function is concurrency safe.
+func Trace2stdout(format string, args ...any) {
+	traceMutex.Lock()
+	defer traceMutex.Unlock()
+
+	now := time.Now().Format("2006-01-02 15:04:05")
+	_, file, line, _ := runtime.Caller(1)
+	file = path.Base(file)
+	logType := color.YellowString("Trace")
+	message := fmt.Sprintf("%v %v:%v %v %v", now, file, line, logType, fmt.Sprintf(format, args...))
+
+	fmt.Println(message)
 }
